@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Threading.Tasks;
 using System.Security.Cryptography;
 
 namespace ClockServer
@@ -14,6 +15,10 @@ namespace ClockServer
 			SendTimezone = 'Z'
 		}
 
+		public bool Active = false;
+
+		public DateTime LastActivity;
+
 		private Stream _stream;
 
 		public ClockServer (Stream stream)
@@ -21,41 +26,60 @@ namespace ClockServer
 			_stream = stream;
 		}
 
-		public void Listen()
+		public async Task ReadASync()
 		{
-			char header = (char)_stream.ReadByte();
-			Console.Write(header);
-
-			switch((MessageType)header)
-			{
+			byte[] readByte = new byte[1];
+			Task<int> task = _stream.ReadAsync (readByte, 0, 1);
+			int x = await task;
+			if (readByte[0] != 0) {
+				LastActivity = DateTime.Now;
+				char header = (char)readByte[0];
+				Console.Write(header);
+				
+				switch((MessageType)header)
+				{
 				case MessageType.RequestTimestamp:
 					{
 						long timestamp = DateTime.Now.ToClockTimestamp();
-						SendTimestamp(MessageType.SendTimestamp, timestamp);
-						SendTimezone();
+						SendTimestamp(timestamp);
+						SendLocalTimeZone();
+						Active = true;
+						//						SendAlarm (DateTime.Now.AddSeconds (10), "Wake up!");
 						break;
 					}
+				}
 			}
+
+						return;
 		}
 
-		public void SendTimezone()
+		public void SendLocalTimeZone()
 		{
 			long offset = DateTime.Now.TimeZoneOffset();
 			long hours = offset / 3600;
 			long minutes = (offset % 3600) / 60;
 			long timezone = hours * 100 + minutes;
-			SendTimestamp (MessageType.SendTimezone, timezone);
+			SendTimeZone (timezone);
 		}
 
-		public void SendAlarm(DateTime time)
+		public void SendAlarm(DateTime time, string message)
 		{
-			SendTimestamp(MessageType.SendAlarm, time.ToClockTimestamp());
+			SendMessage (MessageType.SendAlarm, string.Format("{0}|{1}",time.ToClockTimestamp (),message));
 		}
 
-		private void SendTimestamp(MessageType type, long timestamp)
+		public void SendTimeZone(long timezone)
 		{
-			string message = string.Format("{0}{1}\n", (char)type, timestamp);
-			WriteMessage(message);
+			SendMessage (MessageType.SendTimezone, string.Format ("{0}", timezone));
+		}
+
+		public void SendTimestamp(long timestamp)
+		{
+			SendMessage (MessageType.SendTimestamp, string.Format ("{0}", timestamp));
+		}
+
+		private void SendMessage(MessageType type, string message)
+		{
+			WriteMessage (string.Format ("{0}{1}\n", (char)type, message));
 		}
 
 		private void WriteMessage(string message) 
